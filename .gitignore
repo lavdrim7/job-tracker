@@ -1,0 +1,37 @@
+# Hemmeligheter
+.env
+.env.*
+!.env.example
+
+# Gradle
+.gradle/
+build/
+!**/src/**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin
+.kotlin/
+*.class
+hs_err_pid*
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+!**/src/**/out/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Annet
+*.log
+.DS_Store
+Thumbs.db

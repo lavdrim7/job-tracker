@@ -1,0 +1,8 @@
+* text=auto
+
+# Shell-skript må ha LF for å kjøre på Linux (CI og Docker), bat-filer CRLF for Windows.
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.jar binary

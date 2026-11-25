@@ -5,6 +5,7 @@ Fullstack-app for å følge jobbsøknader: selskap, stilling, status, frist og n
 ## Krav
 - Java 21
 - Docker (testene starter PostgreSQL med Testcontainers)
+- Node.js 20+ og npm (frontend)
 
 ## Backend
 
@@ -42,6 +43,49 @@ Se `.env.example`. Spring leser ikke `.env` selv, så variablene må settes i mi
 | `JWT_SECRET` | ingen, må settes (minst 32 tegn) |
 | `JWT_EXPIRATION` | `PT1H` (ISO-8601-varighet, levetid for token) |
 | `SERVER_PORT` | `8080` |
+
+## Frontend
+
+React + TypeScript + Vite i `frontend/`. Sider: registrering, innlogging og søknadsoversikt (tabell med statusmerke, filter på status, sortering på frist, og skjema for å opprette, redigere og slette).
+
+Kjør frontend sammen med backend (to terminaler):
+
+```bash
+# 1. Backend på :8080 (se "Backend" over)
+cd backend
+DB_PASSWORD=<passord> JWT_SECRET=<hemmelighet> ./gradlew bootRun
+
+# 2. Frontend på http://localhost:5173
+cd frontend
+npm install
+npm run dev
+```
+
+Vite videresender alle kall til `/api` til `http://localhost:8080` (se `frontend/vite.config.ts`). Nettleseren snakker derfor bare med én opprinnelse, og backend trenger ingen CORS-oppsett.
+
+| Kommando (i `frontend/`) | Gjør |
+|---|---|
+| `npm run dev` | Utviklingsserver med proxy |
+| `npm run lint` | ESLint (inkl. `jsx-a11y`) og Prettier-sjekk |
+| `npm run format` | Formater med Prettier |
+| `npm test` | Vitest + React Testing Library |
+| `npm run build` | Typesjekk og produksjonsbygg til `dist/` |
+
+### Lagring av token
+
+JWT-en holdes **bare i minnet** (en variabel i `src/api/client.ts`), ikke i `localStorage`, `sessionStorage` eller en cookie som JavaScript kan lese.
+
+| Alternativ | Avveining |
+|---|---|
+| `localStorage` / `sessionStorage` | Enkelt og overlever reload, men all JavaScript på siden kan lese tokenet. Én XSS-feil eller kompromittert npm-pakke gir tyveri av tokenet, og det kan brukes fra hvor som helst til det utløper. |
+| `HttpOnly`-cookie | Tryggest mot tyveri, siden JS ikke kan lese den. Krever backend-endringer (sette cookie, `SameSite`, CSRF-beskyttelse), som er utenfor denne grenen. |
+| **Minne (valgt)** | JS kan fortsatt *bruke* tokenet mens siden lever, så XSS er ikke løst, men tokenet kan ikke hentes ut og tas med seg senere. Kostnaden er at brukeren må logge inn på nytt etter reload eller ny fane. |
+
+Minne er det tryggeste alternativet som ikke krever å endre backend. Et senere steg kan være `HttpOnly`-cookie med refresh-token. Ved 401 fra et beskyttet endepunkt slettes tokenet, brukeren logges ut og sendes til innlogging.
+
+### Tilgjengelighet
+
+Alle felt har ekte `<label>`-elementer, feil vises som tekst (ikke bare farge) knyttet til feltet med `aria-describedby` og `aria-invalid`, og feilsammendrag annonseres med `role="alert"`. Første ugyldige felt får fokus ved innsending, alle handlinger kan nås og brukes med tastatur, og statusmerker bruker tekst i tillegg til farge.
 
 ## API: innlogging
 

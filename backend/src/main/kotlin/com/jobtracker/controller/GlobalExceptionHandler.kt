@@ -1,6 +1,8 @@
 package com.jobtracker.controller
 
 import com.jobtracker.service.ApplicationNotFoundException
+import com.jobtracker.service.EmailAlreadyRegisteredException
+import com.jobtracker.service.InvalidCredentialsException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -17,6 +19,12 @@ class GlobalExceptionHandler {
     @ExceptionHandler(ApplicationNotFoundException::class)
     fun notFound(e: ApplicationNotFoundException) = error(HttpStatus.NOT_FOUND, e.message ?: "Ikke funnet")
 
+    @ExceptionHandler(EmailAlreadyRegisteredException::class)
+    fun emailTaken(e: EmailAlreadyRegisteredException) = error(HttpStatus.CONFLICT, e.message!!)
+
+    @ExceptionHandler(InvalidCredentialsException::class)
+    fun invalidCredentials(e: InvalidCredentialsException) = error(HttpStatus.UNAUTHORIZED, e.message!!)
+
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun invalid(e: MethodArgumentNotValidException): ResponseEntity<ErrorResponse> {
         val errors = e.bindingResult.fieldErrors
@@ -29,7 +37,7 @@ class GlobalExceptionHandler {
     fun unreadable(e: HttpMessageNotReadableException) = error(
         HttpStatus.BAD_REQUEST,
         "Ugyldig eller manglende innhold i forespørselen. " +
-            "Sjekk JSON-formatet, datoer (yyyy-MM-dd), status og at company og position er satt",
+            "Sjekk JSON-formatet, datoer (yyyy-MM-dd), enum-verdier og at påkrevde felt er satt",
     )
 
     @ExceptionHandler(MethodArgumentTypeMismatchException::class)

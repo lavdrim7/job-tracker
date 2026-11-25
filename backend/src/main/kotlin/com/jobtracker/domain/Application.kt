@@ -16,6 +16,10 @@ import java.util.UUID
 @Entity
 @Table(name = "applications")
 class Application(
+    /** Eieren. Settes ved opprettelse og kan ikke endres. */
+    @Column(name = "user_id", nullable = false, updatable = false)
+    val userId: UUID,
+
     @Column(nullable = false)
     var company: String,
 

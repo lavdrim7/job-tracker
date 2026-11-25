@@ -13,7 +13,6 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.data.domain.Sort
 import java.time.LocalDate
-import java.util.Optional
 import java.util.UUID
 
 class ApplicationServiceTest {
@@ -21,6 +20,7 @@ class ApplicationServiceTest {
     private val repository = mockk<ApplicationRepository>()
     private val service = ApplicationService(repository)
 
+    private val userId = UUID.randomUUID()
     private val id = UUID.randomUUID()
 
     @Test
@@ -29,6 +29,7 @@ class ApplicationServiceTest {
         every { repository.save(capture(saved)) } answers { saved.captured }
 
         service.create(
+            userId,
             ApplicationRequest(company = "  Acme ", position = " Utvikler  ", status = ApplicationStatus.APPLIED),
         )
 
@@ -39,63 +40,64 @@ class ApplicationServiceTest {
 
     @Test
     fun `get returnerer søknaden når den finnes`() {
-        val application = Application(company = "Acme", position = "Utvikler")
-        every { repository.findById(id) } returns Optional.of(application)
+        val application = Application(userId = userId, company = "Acme", position = "Utvikler")
+        every { repository.findByIdAndUserId(id, userId) } returns application
 
-        assertThat(service.get(id)).isSameAs(application)
+        assertThat(service.get(userId, id)).isSameAs(application)
     }
 
     @Test
     fun `get kaster ApplicationNotFoundException for ukjent id`() {
-        every { repository.findById(id) } returns Optional.empty()
+        every { repository.findByIdAndUserId(id, userId) } returns null
 
-        assertThatThrownBy { service.get(id) }
+        assertThatThrownBy { service.get(userId, id) }
             .isInstanceOf(ApplicationNotFoundException::class.java)
             .hasMessageContaining(id.toString())
     }
 
     @Test
     fun `list uten status henter alle`() {
-        every { repository.findAll(any<Sort>()) } returns emptyList()
+        every { repository.findAllByUserId(userId, any()) } returns emptyList()
 
-        service.list(null, ApplicationSort.CREATED)
+        service.list(userId, null, ApplicationSort.CREATED)
 
-        verify { repository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")) }
+        verify { repository.findAllByUserId(userId, Sort.by(Sort.Direction.DESC, "createdAt")) }
     }
 
     @Test
     fun `list med status filtrerer og sorterer nyeste først som standard`() {
-        every { repository.findAllByStatus(any(), any()) } returns emptyList()
+        every { repository.findAllByUserIdAndStatus(userId, any(), any()) } returns emptyList()
 
-        service.list(ApplicationStatus.OFFER, ApplicationSort.CREATED)
+        service.list(userId, ApplicationStatus.OFFER, ApplicationSort.CREATED)
 
-        verify { repository.findAllByStatus(ApplicationStatus.OFFER, Sort.by(Sort.Direction.DESC, "createdAt")) }
+        verify { repository.findAllByUserIdAndStatus(userId, ApplicationStatus.OFFER, Sort.by(Sort.Direction.DESC, "createdAt")) }
     }
 
     @Test
     fun `list sorterer på frist uten filter`() {
-        every { repository.findAllOrderByDeadline() } returns emptyList()
+        every { repository.findAllByUserIdOrderByDeadline(userId) } returns emptyList()
 
-        service.list(null, ApplicationSort.DEADLINE)
+        service.list(userId, null, ApplicationSort.DEADLINE)
 
-        verify { repository.findAllOrderByDeadline() }
+        verify { repository.findAllByUserIdOrderByDeadline(userId) }
     }
 
     @Test
     fun `list sorterer på frist med statusfilter`() {
-        every { repository.findAllByStatusOrderByDeadline(ApplicationStatus.OFFER) } returns emptyList()
+        every { repository.findAllByUserIdAndStatusOrderByDeadline(userId, ApplicationStatus.OFFER) } returns emptyList()
 
-        service.list(ApplicationStatus.OFFER, ApplicationSort.DEADLINE)
+        service.list(userId, ApplicationStatus.OFFER, ApplicationSort.DEADLINE)
 
-        verify { repository.findAllByStatusOrderByDeadline(ApplicationStatus.OFFER) }
+        verify { repository.findAllByUserIdAndStatusOrderByDeadline(userId, ApplicationStatus.OFFER) }
     }
 
     @Test
     fun `update overskriver alle felt`() {
-        val application = Application(company = "Gammel", position = "Gammel stilling", notes = "gammelt notat")
-        every { repository.findById(id) } returns Optional.of(application)
+        val application = Application(userId = userId, company = "Gammel", position = "Gammel stilling", notes = "gammelt notat")
+        every { repository.findByIdAndUserId(id, userId) } returns application
 
         val updated = service.update(
+            userId,
             id,
             ApplicationRequest(
                 company = "Ny",
@@ -114,28 +116,46 @@ class ApplicationServiceTest {
 
     @Test
     fun `update kaster ApplicationNotFoundException for ukjent id`() {
-        every { repository.findById(id) } returns Optional.empty()
+        every { repository.findByIdAndUserId(id, userId) } returns null
 
-        assertThatThrownBy { service.update(id, ApplicationRequest(company = "A", position = "B")) }
+        assertThatThrownBy { service.update(userId, id, ApplicationRequest(company = "A", position = "B")) }
             .isInstanceOf(ApplicationNotFoundException::class.java)
     }
 
     @Test
     fun `delete sletter søknaden`() {
-        val application = Application(company = "Acme", position = "Utvikler")
-        every { repository.findById(id) } returns Optional.of(application)
+        val application = Application(userId = userId, company = "Acme", position = "Utvikler")
+        every { repository.findByIdAndUserId(id, userId) } returns application
         every { repository.delete(application) } returns Unit
 
-        service.delete(id)
+        service.delete(userId, id)
 
         verify { repository.delete(application) }
     }
 
     @Test
     fun `delete kaster ApplicationNotFoundException for ukjent id`() {
-        every { repository.findById(id) } returns Optional.empty()
+        every { repository.findByIdAndUserId(id, userId) } returns null
 
-        assertThatThrownBy { service.delete(id) }.isInstanceOf(ApplicationNotFoundException::class.java)
+        assertThatThrownBy { service.delete(userId, id) }.isInstanceOf(ApplicationNotFoundException::class.java)
         verify(exactly = 0) { repository.delete(any()) }
+    }
+
+    @Test
+    fun `create setter eieren til innlogget bruker`() {
+        val saved = slot<Application>()
+        every { repository.save(capture(saved)) } answers { saved.captured }
+
+        service.create(userId, ApplicationRequest(company = "Acme", position = "Utvikler"))
+
+        assertThat(saved.captured.userId).isEqualTo(userId)
+    }
+
+    @Test
+    fun `get slår opp med eier, så andres søknader gir ApplicationNotFoundException`() {
+        val otherUser = UUID.randomUUID()
+        every { repository.findByIdAndUserId(id, otherUser) } returns null
+
+        assertThatThrownBy { service.get(otherUser, id) }.isInstanceOf(ApplicationNotFoundException::class.java)
     }
 }

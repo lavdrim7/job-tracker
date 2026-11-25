@@ -13,13 +13,18 @@ class ApplicationNotFoundException(id: UUID) : RuntimeException("Fant ingen søk
 
 enum class ApplicationSort { CREATED, DEADLINE }
 
+/**
+ * Alle metoder er avgrenset til [userId]. En søknad som tilhører en annen bruker oppfører seg
+ * nøyaktig som en som ikke finnes (404), så id-er til andre brukere avsløres ikke.
+ */
 @Service
 class ApplicationService(private val repository: ApplicationRepository) {
 
     @Transactional
-    fun create(request: ApplicationRequest): Application =
+    fun create(userId: UUID, request: ApplicationRequest): Application =
         repository.save(
             Application(
+                userId = userId,
                 company = request.company.trim(),
                 position = request.position.trim(),
                 status = request.status,
@@ -31,23 +36,31 @@ class ApplicationService(private val repository: ApplicationRepository) {
         )
 
     @Transactional(readOnly = true)
-    fun get(id: UUID): Application =
-        repository.findById(id).orElseThrow { ApplicationNotFoundException(id) }
+    fun get(userId: UUID, id: UUID): Application =
+        repository.findByIdAndUserId(id, userId) ?: throw ApplicationNotFoundException(id)
 
     /** Sortering på frist er stigende med manglende frist sist. Standard er nyeste først. */
     @Transactional(readOnly = true)
-    fun list(status: ApplicationStatus?, sort: ApplicationSort): List<Application> = when (sort) {
+    fun list(userId: UUID, status: ApplicationStatus?, sort: ApplicationSort): List<Application> = when (sort) {
         ApplicationSort.DEADLINE ->
-            if (status == null) repository.findAllOrderByDeadline() else repository.findAllByStatusOrderByDeadline(status)
+            if (status == null) {
+                repository.findAllByUserIdOrderByDeadline(userId)
+            } else {
+                repository.findAllByUserIdAndStatusOrderByDeadline(userId, status)
+            }
         ApplicationSort.CREATED -> {
             val newestFirst = Sort.by(Sort.Direction.DESC, "createdAt")
-            if (status == null) repository.findAll(newestFirst) else repository.findAllByStatus(status, newestFirst)
+            if (status == null) {
+                repository.findAllByUserId(userId, newestFirst)
+            } else {
+                repository.findAllByUserIdAndStatus(userId, status, newestFirst)
+            }
         }
     }
 
     @Transactional
-    fun update(id: UUID, request: ApplicationRequest): Application {
-        val application = get(id)
+    fun update(userId: UUID, id: UUID, request: ApplicationRequest): Application {
+        val application = get(userId, id)
         application.company = request.company.trim()
         application.position = request.position.trim()
         application.status = request.status
@@ -59,7 +72,7 @@ class ApplicationService(private val repository: ApplicationRepository) {
     }
 
     @Transactional
-    fun delete(id: UUID) {
-        repository.delete(get(id))
+    fun delete(userId: UUID, id: UUID) {
+        repository.delete(get(userId, id))
     }
 }

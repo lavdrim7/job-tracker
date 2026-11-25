@@ -3,6 +3,7 @@ package com.jobtracker.repository
 import com.jobtracker.TestcontainersConfiguration
 import com.jobtracker.domain.Application
 import com.jobtracker.domain.ApplicationStatus
+import com.jobtracker.domain.User
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -12,6 +13,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager
 import org.springframework.context.annotation.Import
 import org.springframework.data.domain.Sort
 import java.time.LocalDate
+import java.util.UUID
 
 /** Kjører mot ekte PostgreSQL (Testcontainers) med Flyway-migrasjonene, ikke en in-memory-database. */
 @DataJpaTest
@@ -19,19 +21,22 @@ import java.time.LocalDate
 @Import(TestcontainersConfiguration::class)
 class ApplicationRepositoryTest(
     @Autowired private val repository: ApplicationRepository,
+    @Autowired private val users: UserRepository,
     @Autowired private val em: TestEntityManager,
 ) {
+    private val owner: UUID = users.saveAndFlush(User("eier-${UUID.randomUUID()}@example.com", "hash")).id!!
 
     private fun app(
         company: String,
         status: ApplicationStatus = ApplicationStatus.WISHLIST,
         deadline: LocalDate? = null,
-    ) = Application(company = company, position = "Utvikler", status = status, deadline = deadline)
+    ) = Application(userId = owner, company = company, position = "Utvikler", status = status, deadline = deadline)
 
     @Test
     fun `lagrer og leser en søknad med alle felt`() {
         val saved = repository.saveAndFlush(
             Application(
+                userId = owner,
                 company = "Acme",
                 position = "Backend-utvikler",
                 status = ApplicationStatus.APPLIED,
@@ -87,7 +92,7 @@ class ApplicationRepositoryTest(
         repository.save(app("C", ApplicationStatus.APPLIED))
         repository.flush()
 
-        val result = repository.findAllByStatus(ApplicationStatus.APPLIED, Sort.by("company"))
+        val result = repository.findAllByUserIdAndStatus(owner, ApplicationStatus.APPLIED, Sort.by("company"))
 
         assertThat(result.map { it.company }).containsExactly("A", "C")
     }
@@ -99,7 +104,7 @@ class ApplicationRepositoryTest(
         repository.save(app("Tidlig", deadline = LocalDate.of(2026, 12, 1)))
         repository.flush()
 
-        val result = repository.findAllOrderByDeadline()
+        val result = repository.findAllByUserIdOrderByDeadline(owner)
 
         assertThat(result.map { it.company }).containsExactly("Tidlig", "Sen", "Uten frist")
     }
@@ -112,8 +117,33 @@ class ApplicationRepositoryTest(
         repository.save(app("Tidlig", ApplicationStatus.APPLIED, LocalDate.of(2026, 12, 1)))
         repository.flush()
 
-        val result = repository.findAllByStatusOrderByDeadline(ApplicationStatus.APPLIED)
+        val result = repository.findAllByUserIdAndStatusOrderByDeadline(owner, ApplicationStatus.APPLIED)
 
         assertThat(result.map { it.company }).containsExactly("Tidlig", "Sen", "Uten frist")
+    }
+
+    @Test
+    fun `oppslag er avgrenset til eieren`() {
+        val other = users.saveAndFlush(User("annen-${UUID.randomUUID()}@example.com", "hash")).id!!
+        val mine = repository.saveAndFlush(app("Min"))
+        val theirs = repository.saveAndFlush(Application(userId = other, company = "Deres", position = "Utvikler"))
+        em.clear()
+
+        assertThat(repository.findByIdAndUserId(mine.id!!, owner)).isNotNull
+        assertThat(repository.findByIdAndUserId(theirs.id!!, owner)).isNull()
+        assertThat(repository.findAllByUserId(owner, Sort.by("company")).map { it.company }).containsExactly("Min")
+        assertThat(repository.findAllByUserIdOrderByDeadline(other).map { it.company }).containsExactly("Deres")
+    }
+
+    @Test
+    fun `søknader slettes sammen med brukeren`() {
+        val saved = repository.saveAndFlush(app("Acme"))
+        em.clear()
+
+        users.deleteById(owner)
+        users.flush()
+        em.clear()
+
+        assertThat(repository.findById(saved.id!!)).isEmpty
     }
 }
